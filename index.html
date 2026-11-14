@@ -11,7 +11,7 @@
   html,body { margin:0; min-height:100%; background:var(--bg); color:var(--fg);
               font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
   .wrap { display:flex; gap:20px; padding:20px; justify-content:center; align-items:flex-start; }
-  .stagecol { flex:1 1 auto; min-width:0; display:flex; justify-content:center; }
+  .stagecol { flex:1 1 auto; min-width:0; display:flex; justify-content:center; align-items:flex-start; }
   .stage { position:relative; width:min(100%, calc((100vh - 40px) * var(--ar, 1.3333))); aspect-ratio:var(--ar, 1.3333);
            background:radial-gradient(ellipse at 50% 40%, #131a2b, #05070c 75%); border:1px solid var(--line);
            border-radius:16px; overflow:hidden; }
@@ -76,7 +76,7 @@
   </div>
 
   <aside>
-    <h1>X-Ray Mirror <span style="font-size:12px;font-weight:500;color:var(--dim)">v3</span></h1>
+    <h1>X-Ray Mirror <span style="font-size:12px;font-weight:500;color:var(--dim)">v4</span></h1>
     <div class="panel"><div id="status">Click Start camera, then allow the camera.</div></div>
 
     <div class="panel">
@@ -180,7 +180,18 @@ try { Object.assign(S, JSON.parse(localStorage.getItem("xr_settings") || "{}"));
 function save() { try { localStorage.setItem("xr_settings", JSON.stringify(S)); } catch (e) {} }
 const LAYERS = ["skull", "brain", "muscles", "eyes", "outline", "hands"];
 const SLIDERS = ["bright", "real", "feather", "cut", "fs", "fw", "fh", "fd", "fx", "fy", "fz", "fov"];
-let picW = 0, picH = 0;                                  // the camera picture's real size, as last measured
+let picW = 0, picH = 0, picAr = 0;                      // the camera picture's real size, as last measured
+// Size the frame in pixels to the picture's shape. (Safari on iPhone ignored the frame's CSS shape when it changed.)
+function layoutStage() {
+  if (!picAr) return;
+  const avail = stage.parentElement.clientWidth;
+  const maxH = Math.max(200, (innerWidth < 900 ? innerHeight * 0.75 : innerHeight) - 40);
+  let w = avail, h = w / picAr;
+  if (h > maxH) { h = maxH; w = h * picAr; }
+  stage.style.aspectRatio = "auto";
+  stage.style.width = Math.round(w) + "px"; stage.style.height = Math.round(h) + "px";
+}
+addEventListener("resize", layoutStage); addEventListener("orientationchange", () => setTimeout(layoutStage, 300));
 const IS_PHONE = /iPhone|iPod|Android.+Mobile/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1 && Math.min(screen.width, screen.height) < 600);
 // Vertical field of view of the picture. MediaPipe assumes 63 degrees; a phone's selfie camera is much wider
 // along its long side (about 72 degrees when the phone is upright) and narrower along the short side.
@@ -721,7 +732,7 @@ function renderFrame(now, faceLms, hands, sides) {
                   ["face shape", "width " + Math.round(head.faceW * 100) + "%, height " + Math.round(head.faceH * 100) + "%"],
                   ["fit error", head.err.toFixed(1) + " px"],
                   ["picture", picW + "x" + picH + " (video " + video.videoWidth + "x" + video.videoHeight + ")"],
-                  ["frame", W + "x" + H + " (version 3)"]);
+                  ["frame", W + "x" + H + " (version 4)"]);
       } else rows.push(["face", "not found"]);
       rows.push(["hands", hands.length ? hands.map((h, i) => sides[i] ? "right" : "left").join(" + ") : "none"]);
       if (hands[0]) rows.push(["index fingertip", (1 - hands[0][8].x).toFixed(2) + ", " + hands[0][8].y.toFixed(2)]);
@@ -840,8 +851,9 @@ $("start").onclick = async () => {
       picW = vw; picH = vh;
       const ar = vw / vh;
       if (Math.abs(ar - lastAr) < 0.01) return;
-      lastAr = ar;
+      lastAr = ar; picAr = ar;
       stage.style.setProperty("--ar", ar.toFixed(4));
+      layoutStage();
       shape.r = 0; shape.n = 0; head.found = false;     // anything learned with the old shape is wrong
       resize(); syncUI();
     }

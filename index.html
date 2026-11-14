@@ -827,8 +827,22 @@ $("start").onclick = async () => {
       video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
     video.srcObject = stream;
     await video.play();
-    const setAr = () => { if (video.videoWidth && video.videoHeight) { stage.style.setProperty("--ar", (video.videoWidth / video.videoHeight).toFixed(4)); resize(); syncUI(); } };
+    // The picture's shape must match the frame exactly: the tracker reports positions in the whole camera picture,
+    // so if the frame crops it (a tall iPhone picture in a wide frame), every point lands in the wrong place.
+    // iPhones can report the picture size late, so keep checking instead of reading it once.
+    let lastAr = 0;
+    const setAr = () => {
+      const vw = video.videoWidth, vh = video.videoHeight;
+      if (!vw || !vh) return;
+      const ar = vw / vh;
+      if (Math.abs(ar - lastAr) < 0.01) return;
+      lastAr = ar;
+      stage.style.setProperty("--ar", ar.toFixed(4));
+      shape.r = 0; shape.n = 0; head.found = false;     // anything learned with the old shape is wrong
+      resize(); syncUI();
+    };
     setAr(); video.addEventListener("resize", setAr); video.addEventListener("loadedmetadata", setAr);
+    (function watchShape() { setAr(); requestAnimationFrame(watchShape); })();
     $("intro").hidden = true;
     stageName = "3D engine";
     setStatus("Loading the 3D anatomy…");

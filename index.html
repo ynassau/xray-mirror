@@ -16,7 +16,7 @@
            background:radial-gradient(ellipse at 50% 40%, #131a2b, #05070c 75%); border:1px solid var(--line);
            border-radius:16px; overflow:hidden; }
   .stage video, .stage canvas { position:absolute; inset:0; width:100%; height:100%; display:block; }
-  #video { object-fit:cover; transform:scaleX(-1); }
+  #video { object-fit:fill; transform:scaleX(-1); }
   #shade, #gl { transform:scaleX(-1); pointer-events:none; }
   #hud { pointer-events:none; }
   #intro { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
@@ -76,7 +76,7 @@
   </div>
 
   <aside>
-    <h1>X-Ray Mirror</h1>
+    <h1>X-Ray Mirror <span style="font-size:12px;font-weight:500;color:var(--dim)">v3</span></h1>
     <div class="panel"><div id="status">Click Start camera, then allow the camera.</div></div>
 
     <div class="panel">
@@ -180,12 +180,13 @@ try { Object.assign(S, JSON.parse(localStorage.getItem("xr_settings") || "{}"));
 function save() { try { localStorage.setItem("xr_settings", JSON.stringify(S)); } catch (e) {} }
 const LAYERS = ["skull", "brain", "muscles", "eyes", "outline", "hands"];
 const SLIDERS = ["bright", "real", "feather", "cut", "fs", "fw", "fh", "fd", "fx", "fy", "fz", "fov"];
+let picW = 0, picH = 0;                                  // the camera picture's real size, as last measured
 const IS_PHONE = /iPhone|iPod|Android.+Mobile/i.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1 && Math.min(screen.width, screen.height) < 600);
 // Vertical field of view of the picture. MediaPipe assumes 63 degrees; a phone's selfie camera is much wider
 // along its long side (about 72 degrees when the phone is upright) and narrower along the short side.
 function autoFov() {
   if (!IS_PHONE) return 63;
-  const vw = video.videoWidth || innerWidth, vh = video.videoHeight || innerHeight;
+  const vw = picW || video.videoWidth || innerWidth, vh = picH || video.videoHeight || innerHeight;
   return vh >= vw ? 72 : 46;
 }
 function currentFov() { return S.fovauto ? autoFov() : S.fov; }
@@ -718,7 +719,9 @@ function renderFrame(now, faceLms, hands, sides) {
                   ["screen fit", "scale " + head.fitS.toFixed(3) + ", shift " + head.fitX.toFixed(3) + ", " + head.fitY.toFixed(3)],
                   ["camera angle", Math.round(currentFov()) + "° " + (S.fovauto ? "(auto)" : "(manual)")],
                   ["face shape", "width " + Math.round(head.faceW * 100) + "%, height " + Math.round(head.faceH * 100) + "%"],
-                  ["fit error", head.err.toFixed(1) + " px"]);
+                  ["fit error", head.err.toFixed(1) + " px"],
+                  ["picture", picW + "x" + picH + " (video " + video.videoWidth + "x" + video.videoHeight + ")"],
+                  ["frame", W + "x" + H + " (version 3)"]);
       } else rows.push(["face", "not found"]);
       rows.push(["hands", hands.length ? hands.map((h, i) => sides[i] ? "right" : "left").join(" + ") : "none"]);
       if (hands[0]) rows.push(["index fingertip", (1 - hands[0][8].x).toFixed(2) + ", " + hands[0][8].y.toFixed(2)]);
@@ -830,17 +833,23 @@ $("start").onclick = async () => {
     // The picture's shape must match the frame exactly: the tracker reports positions in the whole camera picture,
     // so if the frame crops it (a tall iPhone picture in a wide frame), every point lands in the wrong place.
     // iPhones can report the picture size late, so keep checking instead of reading it once.
-    let lastAr = 0;
-    const setAr = () => {
-      const vw = video.videoWidth, vh = video.videoHeight;
+    let lastAr = 0, frameW = 0, frameH = 0;
+    function setAr() {
+      const vw = frameW || video.videoWidth, vh = frameH || video.videoHeight;
       if (!vw || !vh) return;
+      picW = vw; picH = vh;
       const ar = vw / vh;
       if (Math.abs(ar - lastAr) < 0.01) return;
       lastAr = ar;
       stage.style.setProperty("--ar", ar.toFixed(4));
       shape.r = 0; shape.n = 0; head.found = false;     // anything learned with the old shape is wrong
       resize(); syncUI();
-    };
+    }
+    // the size of each frame actually shown is the most reliable measure where the browser offers it
+    if (video.requestVideoFrameCallback) {
+      const onFrame = (t, md) => { if (md && md.width && md.height) { frameW = md.width; frameH = md.height; } setAr(); video.requestVideoFrameCallback(onFrame); };
+      video.requestVideoFrameCallback(onFrame);
+    }
     setAr(); video.addEventListener("resize", setAr); video.addEventListener("loadedmetadata", setAr);
     (function watchShape() { setAr(); requestAnimationFrame(watchShape); })();
     $("intro").hidden = true;
